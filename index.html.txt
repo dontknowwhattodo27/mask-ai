@@ -3,72 +3,230 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>실시간 마스크 감지 시스템</title>
+    <title>AI 실시간 마스크 감지기</title>
+    <!-- TensorFlow.js 및 Teachable Machine 라이브러리 -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
     <style>
-        body { font-family: 'Pretendard', sans-serif; text-align: center; background: #f8f9fa; margin: 0; padding: 20px; }
-        .app-card { max-width: 450px; margin: 0 auto; background: white; border-radius: 20px; padding: 25px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
-        #webcam-container { width: 100%; border-radius: 15px; overflow: hidden; transform: rotateY(180deg); background: #000; margin-bottom: 20px; }
-        canvas { width: 100% !important; height: auto !important; }
-        .status-box { padding: 20px; border-radius: 15px; font-size: 1.4rem; font-weight: bold; margin-bottom: 20px; }
-        .on { background: #e3f9e5; color: #1f9d55; border: 2px solid #1f9d55; }
-        .off { background: #fff0f0; color: #e74c3c; border: 2px solid #e74c3c; }
-        .wait { background: #f1f3f5; color: #868e96; }
-        button { width: 100%; padding: 18px; font-size: 1.2rem; font-weight: bold; background: #0984e3; color: white; border: none; border-radius: 12px; cursor: pointer; }
-        .debug-log { background: #333; color: #00ff00; padding: 10px; border-radius: 10px; font-family: monospace; font-size: 0.9rem; text-align: left; margin-top: 15px; }
+        :root {
+            --primary: #4f46e5;
+            --success: #10b981;
+            --danger: #ef4444;
+            --bg: #f3f4f6;
+            --card-bg: #ffffff;
+        }
+
+        body {
+            font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
+            background-color: var(--bg);
+            color: #1f2937;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 480px;
+            background: var(--card-bg);
+            border-radius: 24px;
+            padding: 32px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            transition: transform 0.3s ease;
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            font-weight: 800;
+            margin-bottom: 8px;
+            color: #111827;
+        }
+
+        p.subtitle {
+            font-size: 0.9rem;
+            color: #6b7280;
+            margin-bottom: 24px;
+        }
+
+        #webcam-wrapper {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 1 / 1;
+            background: #000;
+            border-radius: 16px;
+            overflow: hidden;
+            margin-bottom: 20px;
+            box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.06);
+        }
+
+        #webcam-container canvas {
+            width: 100% !important;
+            height: 100% !important;
+            object-fit: cover;
+            transform: rotateY(180deg); /* 거울 모드 */
+        }
+
+        .status-badge {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 16px;
+            border-radius: 12px;
+            font-size: 1.1rem;
+            font-weight: 700;
+            margin-bottom: 20px;
+            transition: all 0.3s ease;
+        }
+
+        .status-wait { background: #f9fafb; color: #9ca3af; border: 1px solid #e5e7eb; }
+        .status-mask { background: #ecfdf5; color: var(--success); border: 1px solid #10b981; }
+        .status-nomask { background: #fef2f2; color: var(--danger); border: 1px solid #ef4444; }
+
+        .btn-primary {
+            width: 100%;
+            padding: 16px;
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+            box-shadow: 0 4px 6px -1px rgba(79, 70, 229, 0.4);
+        }
+
+        .btn-primary:hover { background-color: #4338ca; }
+        .btn-primary:disabled { background-color: #9ca3af; cursor: not-allowed; box-shadow: none; }
+
+        .debug-panel {
+            margin-top: 24px;
+            text-align: left;
+            background: #111827;
+            padding: 16px;
+            border-radius: 12px;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 0.85rem;
+        }
+
+        .debug-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 4px;
+        }
+
+        .label { color: #9ca3af; }
+        .value { color: #10b981; font-weight: bold; }
+
+        /* 로딩 애니메이션 */
+        .loader {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            display: none;
+        }
+
+        #error-message {
+            display: none;
+            color: var(--danger);
+            font-size: 0.85rem;
+            margin-top: 10px;
+        }
     </style>
 </head>
 <body>
 
-<div class="app-card">
-    <h2>마스크 AI 실시간 감지</h2>
-    <div id="webcam-container"></div>
-    <div id="status-display" class="status-box wait">버튼을 눌러 시작하세요</div>
-    <button id="start-btn" onclick="init()">AI 탐지 시작</button>
-    <div id="debug-log" class="debug-log">인식 결과 대기 중...</div>
+<div class="container">
+    <h1>마스크 AI 감지 시스템</h1>
+    <p class="subtitle">카메라를 바라보면 자동으로 마스크 착용 여부를 확인합니다.</p>
+
+    <div id="webcam-wrapper">
+        <div id="webcam-container"></div>
+        <div id="loader" class="loader">
+            <svg width="40" height="40" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><style>.spinner_P7sC{transform-origin:center;animation:spinner_S7ur .75s infinite linear}@keyframes spinner_S7ur{100%{transform:rotate(360deg)}}</style><path d="M12,1L12,1c5.52,0,10,4.48,10,10c0,5.52-4.48,10-10,10s-10-4.48-10-10C2,5.48,6.48,1,12,1z" fill="none" stroke="#4f46e5" stroke-width="2" stroke-linecap="round" class="spinner_P7sC"/></svg>
+        </div>
+    </div>
+
+    <div id="status-display" class="status-badge status-wait">
+        <span>준비됨</span>
+    </div>
+
+    <button id="start-btn" class="btn-primary" onclick="init()">탐지 시작하기</button>
+    <div id="error-message"></div>
+
+    <div class="debug-panel" id="debug-panel">
+        <div class="debug-item">
+            <span class="label">마스크 확률:</span>
+            <span class="value" id="val-mask">0%</span>
+        </div>
+        <div class="debug-item">
+            <span class="label">미착용 확률:</span>
+            <span class="value" id="val-nomask">0%</span>
+        </div>
+    </div>
 </div>
 
 <script>
-    // 🔗 본인의 모델 URL (현재 주소 그대로 유지)
-    const URL = https://teachablemachine.withgoogle.com/models/GihtqkmqM/;
+    // Teachable Machine 모델 URL
+    const URL = "https://teachablemachine.withgoogle.com/models/GihtqkmqM/";
 
-    let model, webcam;
+    let model, webcam, maxPredictions;
     let isRunning = false;
+    let lastSpoken = ""; // 중복 음성 안내 방지용
 
-    // 음성 안내 함수 (이전 음성을 즉시 취소하고 새로 말함)
     function speak(text) {
-        window.speechSynthesis.cancel(); // 겹침 방지
+        // 동일한 안내가 계속 반복되는 것을 방지 (약간의 쿨타임)
+        if (lastSpoken === text && window.speechSynthesis.speaking) return;
+        
+        window.speechSynthesis.cancel();
         const msg = new SpeechSynthesisUtterance(text);
         msg.lang = 'ko-KR';
-        msg.rate = 1.1; // 약간 빠르게 설정
+        msg.rate = 1.0;
+        lastSpoken = text;
         window.speechSynthesis.speak(msg);
     }
 
     async function init() {
-        if (isRunning) return; // 이미 실행 중이면 중복 실행 방지
-        
         const btn = document.getElementById("start-btn");
+        const loader = document.getElementById("loader");
+        const errorMsg = document.getElementById("error-message");
+
         btn.disabled = true;
-        btn.innerText = "시스템 작동 중...";
+        btn.innerText = "모델 로딩 중...";
+        loader.style.display = "block";
+        errorMsg.style.display = "none";
 
         try {
-            model = await tmImage.load(URL + "model.json", URL + "metadata.json");
-            
-            webcam = new tmImage.Webcam(400, 400, true);
-            await webcam.setup({ facingMode: "user" });
+            const modelURL = URL + "model.json";
+            const metadataURL = URL + "metadata.json";
+
+            model = await tmImage.load(modelURL, metadataURL);
+            maxPredictions = model.getTotalClasses();
+
+            const flip = true; 
+            webcam = new tmImage.Webcam(400, 400, flip);
+            await webcam.setup(); 
             await webcam.play();
             
-            // 핵심: 기존 화면을 비우고 하나만 추가하여 중복 방지
-            const container = document.getElementById("webcam-container");
-            container.innerHTML = ""; 
-            container.appendChild(webcam.canvas);
+            loader.style.display = "none";
+            btn.innerText = "실시간 감지 중";
+            
+            document.getElementById("webcam-container").appendChild(webcam.canvas);
             
             isRunning = true;
             window.requestAnimationFrame(loop);
         } catch (e) {
-            alert("카메라 연결 오류!");
+            console.error(e);
+            loader.style.display = "none";
             btn.disabled = false;
+            btn.innerText = "다시 시도";
+            errorMsg.innerText = "카메라 권한을 허용했는지 확인해주세요.";
+            errorMsg.style.display = "block";
         }
     }
 
@@ -82,37 +240,47 @@
     async function predict() {
         const prediction = await model.predict(webcam.canvas);
         const statusDiv = document.getElementById("status-display");
-        const debugDiv = document.getElementById("debug-log");
+        const maskVal = document.getElementById("val-mask");
+        const noMaskVal = document.getElementById("val-nomask");
 
-        let debugText = "🔍 <b>현재 인식:</b><br>";
         let topClass = "";
         let topProb = 0;
 
-        for (let i = 0; i < prediction.length; i++) {
-            const prob = (prediction[i].probability * 100).toFixed(0);
-            debugText += `${prediction[i].className}: ${prob}%<br>`;
-            if (prediction[i].probability > topProb) {
-                topProb = prediction[i].probability;
-                topClass = prediction[i].className;
+        for (let i = 0; i < maxPredictions; i++) {
+            const className = prediction[i].className;
+            const probability = prediction[i].probability;
+            const percent = (probability * 100).toFixed(0) + "%";
+
+            if (className === "마스크") maskVal.innerText = percent;
+            if (className === "노마스크") noMaskVal.innerText = percent;
+
+            if (probability > topProb) {
+                topProb = probability;
+                topClass = className;
             }
         }
-        debugDiv.innerHTML = debugText;
 
-        // 80% 이상의 확신이 있을 때 작동
-        if (topProb > 0.8) {
-            // 사용자님의 모델 클래스 이름 '마스크'와 '노마스크'에 맞게 수정됨
+        // 결과 업데이트 (신뢰도 85% 이상일 때만 상태 변경)
+        if (topProb > 0.85) {
             if (topClass === "마스크") {
-                statusDiv.innerText = "✅ 환영합니다!";
-                statusDiv.className = "status-box on";
-                // 말하기가 진행 중이지 않을 때만 실행하여 무한 반복
-                if (!window.speechSynthesis.speaking) speak("환영합니다");
+                statusDiv.innerHTML = "<span>✅ 환영합니다</span>";
+                statusDiv.className = "status-badge status-mask";
+                if (!window.speechSynthesis.speaking || lastSpoken !== "환영합니다") {
+                    speak("환영합니다");
+                }
             } else if (topClass === "노마스크") {
-                statusDiv.innerText = "❌ 마스크를 써주세요!";
-                statusDiv.className = "status-box off";
-                if (!window.speechSynthesis.speaking) speak("마스크를 쓰고 입장해주세요");
+                statusDiv.innerHTML = "<span>❌ 마스크를 써주세요</span>";
+                statusDiv.className = "status-badge status-nomask";
+                if (!window.speechSynthesis.speaking || lastSpoken !== "마스크를 쓰고 입장해주세요") {
+                    speak("마스크를 쓰고 입장해주세요");
+                }
             }
+        } else {
+            statusDiv.innerHTML = "<span>인식 중...</span>";
+            statusDiv.className = "status-badge status-wait";
         }
     }
 </script>
+
 </body>
 </html>
